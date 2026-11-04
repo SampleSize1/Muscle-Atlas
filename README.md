@@ -1,6 +1,6 @@
 # Muscle Atlas
 
-Learn the muscles of the human body, layer by layer, on an interactive 3D model. **In beta.**
+Learn the muscles of the human body, layer by layer, on an interactive 3D model.
 
 **Use it here: [samplesize1.com/tools/muscle-atlas](https://samplesize1.com/tools/muscle-atlas/)**
 
