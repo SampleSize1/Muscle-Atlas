@@ -710,7 +710,7 @@ const state = {
   mode: MODE_ALIASES[store.get('mode', 'study')] || store.get('mode', 'study'),
   set: store.get('set', 'names'),
   section: store.get('section', 'all'),   // 'all' | region | 'region/sub'
-  hints: store.get('hints', true) !== false,
+  hints: store.get('hints', false) === true,   // off unless turned on
   view: 'all', viewSide: 'both',          // camera zoom: an area and side to look at, separate from what is being quizzed
   layer: 1,                               // Layers: 1 shows every muscle, 2 peels off the outer ones, 3 the middle ones too, 4 leaves the innermost
   bones: store.get('bones', true) !== false,
