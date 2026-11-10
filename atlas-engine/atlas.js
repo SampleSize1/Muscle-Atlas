@@ -1,5 +1,5 @@
 // The 3D atlas engine: the code that runs the atlases on samplesize1.com/tools, in one place.
-// (So far all but Brain and Engine Atlas run on it; those two still carry their own copy.)
+// (All the atlases but Brain run on it; Brain still carries its own copy.)
 //
 // An atlas is a page with the markup this code fills in (found by id), its data (data.js), its model (.glb)
 // and a call to startAtlas({ ... }) with the settings that make it that atlas: its zoom areas, colours,
@@ -43,6 +43,9 @@ export async function startAtlas(settings) {
   window.__atlasStarted = true;
 
   const DATA = settings.data;
+  // An atlas's own code (settings.extend: the Engine's taking apart and running) is called at fixed points, through this.
+  // It is started further down, once everything it may use exists; until then nothing is called.
+  let own = {};
   // The model ships as a .glb on a normal website. Where only text files can be hosted it ships as
   // base64 text ('…-glb.txt'), which is decoded here before parsing.
   // The model is meshopt-compressed; MeshoptDecoder unpacks it.
@@ -163,7 +166,8 @@ export async function startAtlas(settings) {
     return inSection(d, z.sec) && (!z.match || z.match(d)) && inSide(d, side);
   }
   function zoomed() { return state.view !== 'all' || state.viewSide !== 'both'; }
-  function zoomLabel(key) { return t('zoom_' + key); }
+  // (settings.zoomNames = 'regions': the areas are the map's regions and take their names)
+  function zoomLabel(key) { return settings.zoomNames === 'regions' ? (key === 'all' ? t('whole_body') : (L.ui['zoom_' + key] || regionLabel(key))) : t('zoom_' + key); }
   function viewLabel(key = state.view, side = state.viewSide) {
     const z = ZOOM[key];
     if (side === 'both') return zoomLabel(key);
@@ -173,10 +177,10 @@ export async function startAtlas(settings) {
   function sectionLabel(sec = state.section) {
     if (sec === 'all') return t('whole_body');
     const p = parseSection(sec);
-    return p.sub ? `${regionLabel(p.region)} · ${subLabel(p.sub)}` : regionLabel(p.region);
+    return p.sub && !SUB[p.sub].only ? `${regionLabel(p.region)} · ${subLabel(p.sub)}` : regionLabel(p.region);   // (only: a region's single, unlisted part)
   }
   function sectionTip(sec = state.section) {
-    const p = parseSection(sec), k = p.sub || p.region || 'all';
+    const p = parseSection(sec), k = (p.sub && !SUB[p.sub].only ? p.sub : p.region) || 'all';
     return (L.tips && L.tips[k]) || DATA.tips[k] || '';
   }
 
@@ -199,9 +203,13 @@ export async function startAtlas(settings) {
   const scene = new THREE.Scene();
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.5;
+  // settings.stage: where an atlas differs in how the scene is set (light: how bright the surroundings are, metal needs
+  // something to reflect; near, far and maxDistance: for a bigger model; where the camera starts; startInPlace: it starts
+  // at the first view instead of flying to it)
+  const STAGE = { light: 0.5, near: 0.005, far: 40, maxDistance: 6, camera: [0, 1.0, 4.2], target: [0, 0.85, 0], ...settings.stage };
+  scene.environmentIntensity = STAGE.light;
 
-  const camera = new THREE.PerspectiveCamera(32, 1, 0.005, 40);
+  const camera = new THREE.PerspectiveCamera(32, 1, STAGE.near, STAGE.far);
   scene.add(camera);
   // Studio lights ride with the camera so every angle is lit the same way.
   const key = new THREE.DirectionalLight(0xfff3e2, 1.9); key.position.set(0.9, 1.3, 1.0);
@@ -216,11 +224,11 @@ export async function startAtlas(settings) {
   controls.dampingFactor = 0.09;
   controls.zoomToCursor = true;
   controls.minDistance = 0.05;
-  controls.maxDistance = 6;
+  controls.maxDistance = STAGE.maxDistance;
   controls.rotateSpeed = 0.75;
   controls.screenSpacePanning = true;
-  camera.position.set(0, 1.0, 4.2);
-  controls.target.set(0, 0.85, 0);
+  camera.position.set(...STAGE.camera);
+  controls.target.set(...STAGE.target);
 
   /* platform: radiograph-style floor with L / R markers (anatomical left/right), lettered in the current language */
   const floor = { cv: document.createElement('canvas'), tex: null };
@@ -257,7 +265,8 @@ export async function startAtlas(settings) {
     g.fillText(t('floor_ant'), c, c + c * 0.75);
     if (floor.tex) floor.tex.needsUpdate = true;
   }
-  const platform = makePlatform(); scene.add(platform);
+  // (settings.floor: false = no floor, where its L / R markers would float beside the model or mean nothing)
+  const platform = settings.floor === false ? null : makePlatform(); if (platform) scene.add(platform);
 
   /* ---------------- materials ---------------- */
   // settings.colors: a colour for each kind of piece (a unit's tint in the data picks one; settings.tint is the usual one).
@@ -267,13 +276,16 @@ export async function startAtlas(settings) {
     // (settings.missColors: an atlas whose pieces are red marks a miss in amber instead: the flash, and the review tint)
     scan: new THREE.Color(0x6fd0e8), ok: new THREE.Color(0x4fd18f), bad: new THREE.Color(MISS.flash),
   };
-  const pieceColor = (d) => d.color || COL[UNIT[d.unit].tint || settings.tint];   // (a piece's own colour, where the data gives one)
+  // A piece's colour: its own where the data gives one, its material's where the data has a palette (DATA.palette: each
+  // piece names a material: colour c, roughness r, metalness m), else its unit's tint
+  const PALETTE = DATA.palette;
+  const pieceColor = (d) => d.color || (PALETTE ? PALETTE[d.mat].c : COL[UNIT[d.unit].tint || settings.tint]);
   const overlayMat = new THREE.MeshBasicMaterial({ color: 0x6fd0e8, transparent: true, opacity: settings.highlightOpacity || 0.55, depthTest: false, depthWrite: false });
   // settings.context: the frame the pieces sit in, by kind (bone, cns, organ...): its material. With an opacity it is a
   // ghost, see-through enough that a piece behind it still reads; without one it is solid (the skeleton in Joint Atlas).
   // Two things a kind can say that are not about its material: order (when it is drawn: -2 = before everything) and
   // rays: false (it is left out of everything that looks along a line of sight: clicks, what is in front of what).
-  const ctxMats = Object.fromEntries(Object.entries(settings.context).map(([kind, { order, rays, ...m }]) =>
+  const ctxMats = Object.fromEntries(Object.entries(settings.context || {}).map(([kind, { order, rays, ...m }]) =>
     [kind, new THREE.MeshStandardMaterial(m.opacity == null ? m : { ...m, transparent: true, depthWrite: false })]));
 
   /* ---------------- model ---------------- */
@@ -285,11 +297,13 @@ export async function startAtlas(settings) {
   let modelBox = new THREE.Box3();
 
   function boneRecord(mesh, data) {
+    own.wrap?.(mesh);
     mesh.geometry.computeBoundingSphere();
     const sphere = mesh.geometry.boundingSphere.clone().applyMatrix4(mesh.matrixWorld);
     // settings.pieceMaterial: where an atlas's pieces differ from the usual finish (doubleSided: thin sheets seen from both sides)
     const { doubleSided, ...finish } = settings.pieceMaterial || {};
-    const mat = new THREE.MeshStandardMaterial({ color: pieceColor(data), roughness: 0.45, metalness: 0, envMapIntensity: 0.9, ...finish, side: doubleSided ? THREE.DoubleSide : THREE.FrontSide });
+    const p = PALETTE && PALETTE[data.mat];
+    const mat = new THREE.MeshStandardMaterial({ color: pieceColor(data), roughness: p ? p.r : 0.45, metalness: p ? p.m : 0, envMapIntensity: p ? 1.0 : 0.9, ...finish, side: doubleSided ? THREE.DoubleSide : THREE.FrontSide });
     mesh.material = mat;
     const overlay = new THREE.Mesh(mesh.geometry, overlayMat);
     overlay.visible = false; overlay.renderOrder = 10; overlay.raycast = () => {};
@@ -303,6 +317,7 @@ export async function startAtlas(settings) {
     }
     const rec = { id: data.id, data, mesh, mat, overlay, center: sphere.center, radius: sphere.radius, anchor, flash: null };
     mesh.userData.rec = rec;
+    own.record?.(rec);
     return rec;
   }
 
@@ -358,7 +373,9 @@ export async function startAtlas(settings) {
     if (study) { study.peek = null; study.cleared = false; }
     if (!study || !study.items.length) { setGlow([]); setCallout(null); renderPrompt(); return; }
     const it = study.items[study.index];
+    own.stop?.();
     ensureInView(it.accept);
+    if (moveCamera) own.expose?.(it.accept);
     setGlow(it.accept);
     setCallout(it, anchorId);
     if (moveCamera) showBones([...it.accept].map(id => bones.get(id)).filter(Boolean));
@@ -384,6 +401,7 @@ export async function startAtlas(settings) {
     clearReview();
     if (state.mode === 'study') { session = null; startStudy(); renderStats(); return; }
     study = null;
+    own.stop?.();
     let items = buildItems();
     if (onlyKeys) items = items.filter(it => onlyKeys.includes(it.key));
     shuffle(items);
@@ -411,6 +429,7 @@ export async function startAtlas(settings) {
     if (!session.queue.length) return finishSession();
     session.current = session.queue.shift();
     session.phase = 'ask';
+    own.expose?.(session.current.accept, true);
     renderPrompt();
   }
   function recordStat(key, ok) {
@@ -452,6 +471,7 @@ export async function startAtlas(settings) {
     let near = members[0];
     if (clickedRec && members.length > 1) near = members.reduce((b, r) => r.center.distanceTo(clickedRec.center) < b.center.distanceTo(clickedRec.center) ? r : b, members[0]);
     ensureInView(cur.accept);
+    own.expose?.(cur.accept, true);
     setGlow(cur.accept);
     setCallout(cur, near && near.id);
     showBones(members, near);
@@ -493,7 +513,7 @@ export async function startAtlas(settings) {
     $('rPractice').hidden = !missedItems.length;
     renderPrompt(); renderStats(); renderBest();
     $('sTime').textContent = fmtTime(ms);
-    frameSection();
+    frameSection(settings.reviewKeepsAngle ? camera.position.clone().sub(controls.target) : undefined);   // pull back; reviewKeepsAngle: without turning
   }
   function clearReview() {
     if (!review) return;
@@ -541,15 +561,20 @@ export async function startAtlas(settings) {
       // hidden by peel mode or peeled away by the Layers control
       // hidden: by hand, by the Layers control, by belonging to the other body, or (settings.hideOutsideSection, Organ: its
       // systems overlap too much to leave faint copies around) by being outside the chosen part
-      const hidden = state.hidden.has(r.id) || r.data.layer < state.layer || !inBody(r.data) || (settings.hideOutsideSection === true && !inQuiz);
+      // (settings.layersHide: false = the data's `layer` means something else there: how far the Engine must be open)
+      const how = own.piece ? own.piece(r) : null;   // an atlas's own say: { hidden, ghost: an opacity it is capped at, stillLive }
+      const hidden = state.hidden.has(r.id) || (settings.layersHide !== false && r.data.layer < state.layer) || !inBody(r.data) || (settings.hideOutsideSection === true && !inQuiz) || !!(how && how.hidden);
       const occluding = occ.recs.has(r);
       r.mesh.visible = !hidden;
-      const opacity = !live ? (inQuiz ? DIM.outOfView : DIM.away) : occluding ? DIM.inFront : (state.xray ? DIM.xray : 1);
+      let opacity = !live ? (inQuiz ? DIM.outOfView : DIM.away) : occluding ? DIM.inFront : (state.xray ? DIM.xray : 1);
+      const ghost = !!how && how.ghost != null;
+      if (ghost) opacity = Math.min(opacity, how.ghost);
+      if (how) r.mesh.renderOrder = ghost ? -1 : 0;
       const transparent = opacity < 1;
       if (r.mat.transparent !== transparent) { r.mat.transparent = transparent; r.mat.needsUpdate = true; }
       r.mat.opacity = opacity; r.mat.depthWrite = !transparent;
       if (r.pick) r.pick.visible = false;
-      if (live && !hidden) { liveMeshes.push(r.mesh); if (!occluding) { pickables.push(r.pick || r.mesh); drawnLive.push(r.mesh); } }   // clicks land on the fatter pick tube
+      if (live && !ghost && (!hidden || (how && how.stillLive))) { liveMeshes.push(r.mesh); if (!occluding) { pickables.push(r.pick || r.mesh); drawnLive.push(r.mesh); } }   // clicks land on the fatter pick tube
     }
     for (const c of ctxPieces) {
       // the Bones button hides the frame (the skeleton, brain, organs), except the kinds in settings.frameAlwaysShown (tendons).
@@ -621,9 +646,9 @@ export async function startAtlas(settings) {
       // the fat tube of a big piece can wrap a thin one that is visibly under the cursor: a piece whose drawn surface
       // is hit within 6 mm of the first hit wins over a pick tube
       const dh = castAt(clientX, clientY, drawnLive);
-      if (dh.length && dh[0].distance <= hits[0].distance + 0.006) o = dh[0].object;
+      if (dh.length && dh[0].distance <= hits[0].distance + (settings.clickDepth || 0.006)) o = dh[0].object;   // (settings.clickDepth: that margin)
       // a lump on a tube (a ganglion on the sympathetic trunk, a root at the brainstem) wins over the tube it sits on
-      const lump = dh.find(h => !h.object.userData.rec.pick && h.distance <= dh[0].distance + 0.008);
+      const lump = settings.clickLumps === false ? null : dh.find(h => !h.object.userData.rec.pick && h.distance <= dh[0].distance + 0.008);
       if (lump) o = lump.object;
     }
     if (!o || !o.userData.rec) {
@@ -707,8 +732,7 @@ export async function startAtlas(settings) {
         // the side nearer to where the camera is looking
         const recs = u.members.map(id => bones.get(id)).filter(Boolean); if (!recs.length) return;
         const rec = recs.reduce((b, r) => r.center.distanceTo(controls.target) < b.center.distanceTo(controls.target) ? r : b);
-        studyPick(rec);
-        showBones(recs, rec);
+        if (own.searchPick) own.searchPick(u, recs); else { studyPick(rec); showBones(recs, rec); }
         document.body.classList.remove('sheet-open');
       });
       li.append(btn); return li;
@@ -742,7 +766,9 @@ export async function startAtlas(settings) {
   }
   function cancelFly() { fly = null; }
   controls.addEventListener('start', cancelFly);
-  const VIEW_DIRS = {
+  // Where the camera looks from, by name. An atlas of something other than a body brings its own (settings.viewDirs:
+  // name -> [x, y, z]) and says which is the usual one (settings.defaultView).
+  const VIEW_DIRS = settings.viewDirs ? Object.fromEntries(Object.entries(settings.viewDirs).map(([k, v]) => [k, new THREE.Vector3(...v)])) : {
     front: new THREE.Vector3(0, 0.1, 1), back: new THREE.Vector3(0, 0.1, -1),
     left: new THREE.Vector3(1, 0.1, 0), right: new THREE.Vector3(-1, 0.1, 0),
     top: new THREE.Vector3(0, 1, 0.55),
@@ -755,9 +781,10 @@ export async function startAtlas(settings) {
   // or its region (settings.viewFrom = { sub: { foot: 'top' }, region: { head: 'left' } }).
   function sectionDir(sec = state.section) {
     const p = parseSection(sec), from = settings.viewFrom || {};
-    return VIEW_DIRS[(from.sub || {})[p.sub] || (from.region || {})[p.region] || 'front'];
+    return VIEW_DIRS[(from.sub || {})[p.sub] || (from.region || {})[p.region] || settings.defaultView || 'front'];
   }
   function scopeSphere(key = state.view, side = state.viewSide) {
+    if (own.scopeSphere) return own.scopeSphere(key);
     const box = new THREE.Box3();
     // Pieces can be long and thin, so the frame is built from their bounding boxes, not bounding spheres (a sphere round a
     // diagonal vessel is far bigger than the vessel). Pieces marked noframe (the IVC, the great saphenous vein...,
@@ -780,6 +807,7 @@ export async function startAtlas(settings) {
     return z.top ? VIEW_DIRS.top : VIEW_DIRS.front;
   }
   function frameSection(dir) {
+    if (own.frameSection) return own.frameSection(dir);
     autoView = '';
     const s = scopeSphere();
     flyTo(s.center, fitDistance(Math.max(s.radius, zoomed() ? 0.02 : 0)), dir || zoomDir());
@@ -794,6 +822,7 @@ export async function startAtlas(settings) {
   // been peeled away by the Layers control, bring its layer back.
   function ensureInView(ids) {
     if (zoomed() && [...ids].some(id => BONE[id] && !inView(BONE[id]))) setView('all', 'both', false);
+    if (settings.layersHide === false) return;
     const top = Math.min(...[...ids].map(id => BONE[id] ? BONE[id].layer : 9));
     if (top < state.layer) setLayer(top);
   }
@@ -809,7 +838,7 @@ export async function startAtlas(settings) {
     const btn = $('viewBtn');   // phones only: shows where you're zoomed
     btn.textContent = zoomed() ? viewLabel() : t('view');
     btn.classList.toggle('zoomed', zoomed());
-    $('viewSideSeg').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === state.viewSide)));
+    $('viewSideSeg')?.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === state.viewSide)));
     $('zoomGrid').replaceChildren(...ZOOMS.map((z, i) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'zchip'; b.dataset.zoom = z.key;
       b.setAttribute('aria-pressed', String(state.view === z.key || ZOOM[state.view].parent === z.key));
@@ -827,7 +856,7 @@ export async function startAtlas(settings) {
     setView(b.dataset.zoom, zoomCount(b.dataset.zoom, state.viewSide) ? state.viewSide : 'both');
     closeViewSheetOnPhone();
   });
-  $('viewSideSeg').addEventListener('click', (e) => {
+  $('viewSideSeg')?.addEventListener('click', (e) => {   // (settings.sides: false = nothing here has a left and right; no such buttons)
     const v = e.target.closest('button')?.dataset.v; if (!v || !zoomCount(state.view, v)) return;
     setView(state.view, v);
   });
@@ -835,7 +864,7 @@ export async function startAtlas(settings) {
   function zoomKey(i) {
     const z = ZOOMS[i]; if (!z) return;
     let side = 'both';
-    if (state.view === z.key) side = { both: 'left', left: 'right', right: 'both' }[state.viewSide];
+    if (settings.sides !== false && state.view === z.key) side = { both: 'left', left: 'right', right: 'both' }[state.viewSide];
     if (z.key === 'all' && state.view === 'all') side = 'both';
     for (let tries = 0; tries < 3 && !zoomCount(z.key, side); tries++) side = { both: 'left', left: 'right', right: 'both' }[side];
     if (!zoomCount(z.key, side)) { toast(t('not_in_quiz', { area: zoomLabel(z.key) })); return; }
@@ -864,6 +893,8 @@ export async function startAtlas(settings) {
     let w = String(raw).toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
     while (w.length && VOICE_FILLER.has(w[0])) w.shift();
     while (w.length && (w[w.length - 1] === 'please' || w[w.length - 1] === 'thanks')) w.pop();
+    const said = own.voiceParse && own.voiceParse(w);   // an atlas's own commands ("take it apart")
+    if (said) return said;
     const direct = VOICE_LOOKUP.get(voiceForm(w.join('')));
     if (direct) return { key: direct, side: 'both' };   // e.g. "zoom out", said before "zoom" is treated as a prefix
     while (w.length > 1 && VOICE_PREFIX.has(w[0])) w.shift();
@@ -878,7 +909,7 @@ export async function startAtlas(settings) {
         while (w.length > 1 && ['on', 'the'].includes(w[w.length - 1])) w.pop();
       } else if (saidSide) return null;
     }
-    if (!w.length) return side && saidSide ? { key: state.view, side } : null;   // "left side": same area, that side
+    if (!w.length) return side && saidSide && settings.sides !== false ? { key: state.view, side } : null;   // "left side": same area, that side
     const f = voiceForm(w.join(''));
     const key = VOICE_LOOKUP.get(f) || (side && side !== 'both' ? VOICE_LOOKUP_SIDED.get(f) : null);
     return key ? { key, side: side || 'both' } : null;
@@ -952,7 +983,7 @@ export async function startAtlas(settings) {
       const prev = voice.fired.get(i);
       clearTimeout(voice.steady);
       if (r.isFinal) {
-        if (cmd && !(prev && prev.key === cmd.key && prev.side === cmd.side)) voiceDo(cmd, text);
+        if (cmd && !(prev && prev.key === cmd.key && (settings.sides === false || prev.side === cmd.side) && prev.act === cmd.act)) voiceDo(cmd, text);
         else if (!cmd && !prev) voiceStatus(t('voice_not_cmd', { text }));
         voice.fired.set(i, cmd || prev || { key: null });
       } else if (!prev) {
@@ -964,7 +995,8 @@ export async function startAtlas(settings) {
   }
   function voiceDo(cmd, text) {
     if (pendingConfirm) return;   // the end-test question is up: ignore speech
-    let side = cmd.side;
+    if (cmd.act) { own.voiceDo(cmd, text); return; }
+    let side = settings.sides === false ? 'both' : cmd.side;
     if (!zoomCount(cmd.key, side)) side = 'both';
     if (!zoomCount(cmd.key, side)) { voiceStatus(t('voice_not_in_quiz', { text, area: zoomLabel(cmd.key) }), 'bad'); return; }
     if (state.view === cmd.key && state.viewSide === side) frameSection(); else setView(cmd.key, side);
@@ -1030,6 +1062,7 @@ export async function startAtlas(settings) {
   // Bring the piece(s) being shown into view: a study step, a practice reveal, a search result.
   function showBones(members, focus) {
     if (!members.length) return;
+    if (own.showBones) return own.showBones(members, focus);
     if (zoomed()) { if (!onScreen(members, focus)) frameSection(); return; }   // keep the zoom area the person picked
     const v = standardView(members, focus), id = [v.key, v.side, v.turn].join('|');
     if (id === autoView && onScreen(members, focus)) return;
@@ -1071,7 +1104,7 @@ export async function startAtlas(settings) {
     const parts = [];
     const rows = settings.noteRows.filter(k => note[k]);
     rows.forEach((k, i) => {
-      const b = document.createElement('b'); b.textContent = t(k) + ' ';
+      const b = document.createElement('b'); b.textContent = t((settings.noteLabelPrefix || '') + k) + ' ';
       parts.push(b, document.createTextNode(note[k] + ' '));
       if (i < rows.length - 1 && settings.noteBreaks !== false) parts.push(document.createElement('br'));   // a row to a line (noteBreaks: false runs them on)
     });
@@ -1083,6 +1116,7 @@ export async function startAtlas(settings) {
     pr.classList.toggle('is-reveal', !!session && session.phase === 'reveal');
     const secLabel = sectionLabel();
     if (state.mode === 'study') {
+      if (own.prompt && own.prompt()) return;
       if (!study || !study.items.length) {
         $('pEyebrow').textContent = t('mode_study'); $('pName').textContent = t('nothing_to_study'); $('pMeta').textContent = secLabel; setTip(''); return;
       }
@@ -1151,7 +1185,7 @@ export async function startAtlas(settings) {
     for (const r of DATA.regions) {
       const g = document.createElement('div'); g.className = 'rgroup' + (cur.region === r.key ? ' open' : '');
       const subs = document.createElement('div'); subs.className = 'subs';
-      subs.append(...r.subs.filter(inBody).map(s => mk(`${r.key}/${s.key}`, subLabel(s.key), 'sb')));
+      if (!r.subs[0]?.only) subs.append(...r.subs.filter(inBody).map(s => mk(`${r.key}/${s.key}`, subLabel(s.key), 'sb')));   // a region with no parts has one, unlisted
       g.append(mk(r.key, regionLabel(r.key), 'rg'), subs);
       kids.push(g);
     }
@@ -1229,7 +1263,9 @@ export async function startAtlas(settings) {
     el.innerHTML = t('best_here', { s: b.score, t: b.total, time: fmtTime(b.ms) });
   }
   function setMode(m, restart = true) {
+    own.modeChanging?.(m);
     state.mode = m; store.set('mode', m);
+    own.modeChanged?.(m);
     renderSegs(); renderBest(); resize();
     if (restart) startSession();
   }
@@ -1308,7 +1344,7 @@ export async function startAtlas(settings) {
   $('bonesBtn')?.addEventListener('click', () => setBonesShown(!state.bones));
   $('peelBtn').addEventListener('click', () => { state.peel = !state.peel; $('peelBtn').setAttribute('aria-pressed', String(state.peel)); toast(t(state.peel ? 'peel_on' : 'peel_off')); });
   $('unhideBtn').addEventListener('click', () => { state.hidden.clear(); applyVisibility(); closeViewSheetOnPhone(); });
-  $('resetBtn').addEventListener('click', () => { frameSection(); closeViewSheetOnPhone(); });
+  $('resetBtn').addEventListener('click', () => { if (own.resetView) own.resetView(); else frameSection(); closeViewSheetOnPhone(); });
   $('restartBtn').addEventListener('click', () => guardTest('Restarting', () => startSession()));
   $('skipBtn').addEventListener('click', skip);
   $('prevBtn').addEventListener('click', () => studyStep(-1));
@@ -1327,8 +1363,9 @@ export async function startAtlas(settings) {
     // credit line: links kept, words around them translated
     const a = [...$('credit').querySelectorAll('a')].map(x => x.outerHTML);
     if (!applyStatic.links) applyStatic.links = a;
-    const [za, bp, cc, hra, ccby] = applyStatic.links;   // the links in the page's credit line, in order (three, or five)
-    $('credit').innerHTML = t('credit', { za, bp, cc, hra, ccby });
+    // the links in the page's credit line, in order, and what the text table calls them (settings.creditLinks)
+    const links = Object.fromEntries((settings.creditLinks || ['za', 'bp', 'cc', 'hra', 'ccby']).map((name, i) => [name, applyStatic.links[i]]));
+    $('credit').innerHTML = t('credit', links);
     $('langNote').hidden = !t('lang_note');
     if (settings.languageNamesBoth) for (const o of $('langSel').options) {   // "Deutsch (German)": its own name, then the name in the language in use
       const native = I18N.langs.find(x => x[0] === o.value)[1], here = t('lname_' + o.value);
@@ -1349,6 +1386,7 @@ export async function startAtlas(settings) {
     applyVisibility();   // "Show N hidden pieces"
     if (voice.on) voiceStatus(t('voice_listening'));
     drawPlatform();
+    own.language?.();
     resize();
   }
   $('langSel').replaceChildren(...I18N.langs.map(([code, native]) => {
@@ -1373,15 +1411,17 @@ export async function startAtlas(settings) {
     else if (k === 'x') setXray(!state.xray);
     else if (k === 'l' && settings.layers) setLayer(state.layer % (settings.layers === true ? 3 : settings.layers) + 1, true);   // layers: true = three, or how many
     else if (k === 'g' && settings.bodies) setSex(state.sex === 'M' ? 'F' : 'M', true);
+    else if (own.key && own.key(k)) { /* one of the atlas's own keys */ }
     else if (k === 'b' && $('bonesBtn')) setBonesShown(!state.bones);
     else if (k === 'h') setHints(!state.hints);
     else if (k === 'v') setVoice(!voice.on);
     else if (/^[0-9]$/.test(k)) zoomKey((Number(k) + 9) % 10);
     else if (k === 'c') setClean(!state.clean);
-    else if (k === 'r') frameSection();
+    else if (k === 'r') { if (own.resetView) own.resetView(); else frameSection(); }
     else if (k === 'escape') {
       const sheetOpen = /(^|\s)(sheet|view)-open(\s|$)/.test(document.body.className);
       if (sheetOpen) setSheet(null);
+      else if (own.stop && own.stop()) { /* Esc first stops what was running */ }
       else if (settings.escClearsSelection !== false && state.mode === 'study' && study && (study.peek || glowing.length)) clearStudySelection();   // first Esc: clear the selection
       else if (zoomed()) setView('all', 'both');                                                           // then zoom back out
       else if (state.clean) setClean(false);
@@ -1483,7 +1523,8 @@ export async function startAtlas(settings) {
   function sameSet(a, b) { if (a.size !== b.size) return false; for (const x of a) if (!b.has(x)) return false; return true; }
   function updateOccluders() {
     const rec = callout.rec;
-    const key = rec && !state.xray ? rec.id + '|' + camera.position.toArray().map(v => v.toFixed(3)).join(',') : '';
+    const moved = own.occKey ? own.occKey() : '';   // (pieces that move: where they are now, or null while they are moving)
+    const key = rec && !state.xray && moved !== null ? rec.id + '|' + moved + camera.position.toArray().map(v => v.toFixed(3)).join(',') : '';
     if (key === occ.key) return;
     occ.key = key;
     const recs = new Set(), ctx = new Set();
@@ -1514,6 +1555,7 @@ export async function startAtlas(settings) {
       if (k >= 1) fly = null;
     }
     controls.update();
+    own.tick?.(now);
     if (hoverPending) { const p = pickAt(hoverPending.x, hoverPending.y); hoverPending = null; setHover(p && p.rec ? p.rec : null); }
     overlayMat.opacity = 0.28 + 0.3 * (0.5 + 0.5 * Math.sin(now / 220));
     for (const r of bones.values()) {
@@ -1527,6 +1569,7 @@ export async function startAtlas(settings) {
     }
     if (session && !session.end && state.mode !== 'study' && !pendingConfirm) $('sTime').textContent = fmtTime(now - session.start);
     camera.updateMatrixWorld();
+    own.frame?.();
     updateCallout();
     updateOccluders();
     renderer.render(scene, camera);
@@ -1535,8 +1578,14 @@ export async function startAtlas(settings) {
 
   /* ---------------- boot ---------------- */
   applyStatic();
+  // An atlas's own code starts here (settings.extend). It is handed what it may use of the engine and gives back the
+  // functions the engine calls at the points marked `own.` above: see engine-atlas/machine.js.
+  if (settings.extend) own = settings.extend({
+    $, BONE, DATA, THREE, UNIT, VIEW_DIRS, applyVisibility, bones, callout, camera, closeViewSheetOnPhone, controls, flyTo, inScope, inView, layout, narrow, occ, projectPx, renderPrompt, resize, scene, setCallout, setGlow, setView, state, store, studyPick, t, toast, voiceStatus, zoomDir, zoomed,
+    get pendingConfirm() { return pendingConfirm; }, get study() { return study; },
+  });
   setLayer(1); if ($('bonesBtn')) setBonesShown(state.bones);
-  renderSegs(); renderRail(); renderBest(); renderZoom(); resize();
+  renderSegs(); renderRail(); renderBest(); renderZoom(); own.ready?.(); resize();
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   async function fetchModel(url, onProgress) {
@@ -1561,12 +1610,13 @@ export async function startAtlas(settings) {
     scene.add(root);
     root.updateMatrixWorld(true);
     const pickMeshes = new Map();   // pk_<id>: the fatter, invisible tube a click lands on
-    root.traverse((o) => {
-      if (!o.isMesh) return;
+    const meshes = [];   // listed first: making a piece's record may move it in the tree
+    root.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    for (const o of meshes) {
       const id = o.name;
       if (id.startsWith('pk_')) { pickMeshes.set(id, o); o.visible = false; }
       else if (BONE[id]) bones.set(id, boneRecord(o, BONE[id]));
-      else if (DATA.context[id]) {
+      else if (DATA.context && DATA.context[id]) {
         const c = DATA.context[id];   // kind, side, extra (the piece's name), subs and regions (the areas it is part of the frame for)
         o.material = ctxMats[c.kind].clone(); o.userData.ctx = { kind: c.kind, extra: c.extra };
         // ghosts draw first, so pieces behind them still show through (settings.frameDrawnFirst: false = not; a kind can set its own order)
@@ -1575,7 +1625,7 @@ export async function startAtlas(settings) {
         if (how.rays === false) o.raycast = () => {};
         ctxPieces.push({ id, mesh: o, kind: c.kind, subs: c.subs, regions: c.regions, side: c.side, baseOpacity: ctxMats[c.kind].opacity });
       } else o.visible = false;
-    });
+    }
     for (const r of bones.values()) {
       const pk = r.data.pick && pickMeshes.get(r.data.pick);
       if (!pk) continue;
@@ -1583,26 +1633,28 @@ export async function startAtlas(settings) {
       // the glow uses the fat tube too, so a thin piece lights up as a band you can see
       r.mesh.remove(r.overlay);
       r.overlay = new THREE.Mesh(pk.geometry, overlayMat); r.overlay.visible = false; r.overlay.renderOrder = 10; r.overlay.raycast = () => {};
-      pk.updateMatrixWorld(true); r.overlay.applyMatrix4(pk.matrixWorld); scene.add(r.overlay);
+      if (!(own.pick && own.pick(r, pk))) { pk.updateMatrixWorld(true); r.overlay.applyMatrix4(pk.matrixWorld); scene.add(r.overlay); }
     }
     const missing = DATA.bones.filter(b => !bones.has(b.id)).map(b => b.id);
     if (missing.length) console.warn('Pieces missing from model:', missing);
     modelBox = new THREE.Box3().setFromObject(root);
-    if (settings.floor === false) platform.visible = false;   // no floor where its L / R markers would float beside the model (Tooth)
+    own.model?.(root);
     window.__atlas = { bones: bones.size, missing, context: ctxPieces.length };
     if (location.hash === '#selftest') {
       window.__atlas.t = { THREE, bones, state, camera, controls, pickAt, applyVisibility, setSection, setXray, setMode, startSession,
         frameSection, getSession: () => session, getStudy: () => study, setHints, setView, zoomKey, studyStep, renderPrompt, cancelFly, buildItems, countFor, layout,
         ctxPieces, CONTEXT_CLICKABLE, projectPx, parseVoice, setVoice, voice, standardView, areaFor, setLayer, setBonesShown, UNIT, DATA, contextNote, showBones, clearAutoView: () => { autoView = ''; }, callout, occ, studyPick, scopeSphere,
         setLang, ...(settings.bodies ? { setSex } : {}), i18n: () => ({ LANG, t, label, viewLabel, sectionLabel }), renderSearch, hideBone: (id) => hideBone(bones.get(id)), answer, finishSession: () => finishSession(),
-        flyNow: () => { if (!fly) return; controls.target.copy(fly.t1); sphNow.set(fly.r1, fly.ph1, fly.th0 + fly.dth).makeSafe(); camera.position.setFromSpherical(sphNow).add(controls.target); fly = null; controls.update(); camera.updateMatrixWorld(); } };
+        ...own.handles,
+        flyNow: () => { own.flyNow?.(); if (!fly) { if (own.flyNow) { controls.update(); camera.updateMatrixWorld(); } return; } controls.target.copy(fly.t1); sphNow.set(fly.r1, fly.ph1, fly.th0 + fly.dth).makeSafe(); camera.position.setFromSpherical(sphNow).add(controls.target); fly = null; controls.update(); camera.updateMatrixWorld(); } };
     }
     applyVisibility();
     resize();
-    const s = modelBox.getBoundingSphere(new THREE.Sphere());
+    const s = own.scopeSphere ? scopeSphere('all') : modelBox.getBoundingSphere(new THREE.Sphere());
     controls.target.copy(s.center);
-    camera.position.copy(s.center).add(VIEW_DIRS.front.clone().normalize().multiplyScalar(fitDistance(s.radius)));
+    camera.position.copy(s.center).add(VIEW_DIRS[settings.defaultView || 'front'].clone().normalize().multiplyScalar(fitDistance(s.radius)));
     frameSection();
+    if (STAGE.startInPlace && fly) { controls.target.copy(fly.t1); sphNow.set(fly.r1, fly.ph1, fly.th0 + fly.dth).makeSafe(); camera.position.setFromSpherical(sphNow).add(controls.target); fly = null; }
     $('loading').hidden = true;
     startSession();
   }
