@@ -1,0 +1,388 @@
+/* The look of every 3D atlas on samplesize1.com/tools (Bone, Muscle, Organ, Brain, Joint, Nerve, Heart, Lymph, Tooth, Engine).
+   Each atlas page loads this file; a change here changes all of them.
+
+   Layout: a full-bleed specimen stage. The prompt tag floats top-centre like a lab label, the region map runs
+   down the left, stats and controls sit on the right (a bottom sheet on phones). Single dark look.
+
+   Where one atlas differs from the rest:
+   - in a value (a colour, a size): the atlas sets a variable in a small <style> in its own page, after this file.
+     The variables meant for that are --miss, --tip-width and --tip-height (below).
+   - in a rule: its version is written here, right after the rule it replaces, and starts with
+     :where([data-atlas="…"]). That matches the page's <html data-atlas="…"> without making the rule any stronger,
+     so the rules further down (short windows, phones) still override it exactly as they override the usual one.
+   - in having something the others don't (the Engine's stroke labels): those styles are in that atlas's own page. */
+:root {
+  --bg: #0a0f14;
+  --bg-lift: #121b23;
+  --panel: rgba(13, 20, 27, 0.86);
+  --line: #223140;
+  --line-strong: #33475a;
+  --fg: #e8edf0;
+  --muted: #8d9ca9;
+  --bone: #ecdec2;
+  --scan: #6fd0e8;
+  --ok: #5fd39a;
+  --bad: #ff7a6b;
+  --miss: #ff7a6b;   /* missed pieces in the results. An atlas whose model is red sets its own (Muscle, Organ, Brain: amber) */
+  --tip-width: 70ch;     /* the line of description under the name in Study: how wide it may run… */
+  --tip-height: 4.35em;  /* …and the room kept for it (three lines), so the prompt keeps its size from one piece to the next */
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 10px;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  /* also set here, not just on :root: a page that embeds this one (the claude.ai preview) can switch the root to a light
+     scheme, and the language menu's drop-down list would then draw its highlighted row as dark text on dark */
+  color-scheme: dark;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--f-display);
+  font-size: 14px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+#stage {
+  position: fixed; inset: 0;
+  background: radial-gradient(120% 80% at 50% 38%, #16222c 0%, #0e151b 45%, var(--bg) 78%);
+}
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+#stage.hovering canvas { cursor: pointer; }
+
+/* on-model name callout (Study, and the reveal in Practice) */
+#leader { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+#leader line { stroke: var(--scan); stroke-width: 1.5; }
+#leader circle { fill: var(--scan); }
+.callout {
+  position: fixed; left: 0; top: 0; pointer-events: none; white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--scan); border-radius: 6px;
+  color: var(--bone); font-weight: 700; font-stretch: 106%; font-size: 14px; padding: 5px 10px;
+}
+/* Bone: one line when it fits; long names (Latin phalanges) wrap within the screen */
+:where([data-atlas="bone"]) .callout { white-space: normal; width: max-content; text-wrap: balance; box-sizing: border-box; }
+
+.ui {
+  position: fixed; inset: 0;
+  padding-block: calc(env(safe-area-inset-top, 0px) + 14px) calc(env(safe-area-inset-bottom, 0px) + 14px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: minmax(248px, 1fr) minmax(0, 560px) minmax(300px, 1fr);   /* 248 = the left column's width */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+}
+.ui > * { pointer-events: auto; }
+@media (max-width: 1180px) { .home .wordmark { display: none; } }   /* narrower: just the [1] mark and the tool name */
+
+/* ---------- brand ---------- */
+.brand { grid-column: 1; grid-row: 1; align-self: start; display: grid; gap: 5px; min-width: 0; text-shadow: 0 1px 10px rgba(5, 8, 11, 0.85); }
+.lockup { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.home { display: inline-flex; align-items: center; gap: 7px; color: var(--bone); text-decoration: none; flex: none; border-radius: 4px; }
+.home .logo-mark { height: 21px; width: auto; color: var(--scan); flex: none; transition: filter .15s; }
+.home .wordmark { font-family: "Montserrat", var(--f-display); font-weight: 800; font-size: 14.5px; letter-spacing: 0.02em; line-height: 1; }
+.home:hover .logo-mark { filter: brightness(1.2) drop-shadow(0 0 6px rgba(111, 208, 232, 0.45)); }
+.home:hover .wordmark { color: var(--fg); }
+.lockup .divider { width: 1px; height: 18px; background: var(--line-strong); flex: none; }
+.brand .mark { font-weight: 800; font-stretch: 125%; letter-spacing: -0.01em; font-size: 20px; color: var(--bone); line-height: 1; white-space: nowrap; }
+.brand .mark span { color: var(--scan); }
+.brand .mark .beta { font-style: normal; font-family: var(--f-mono); font-weight: 600; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--scan); border: 1px solid var(--scan); border-radius: 4px; padding: 2px 5px; vertical-align: 4px; margin-left: 4px; opacity: .85; }
+
+/* ---------- prompt tag ---------- */
+.prompt {
+  /* spans into the flexible row so its height never changes the size of row 1 (the map and panel stay put) */
+  grid-column: 2; grid-row: 1 / 3; align-self: start; justify-self: center; width: 100%; box-sizing: border-box;   /* stays inside its column */
+  background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--line-strong); border-radius: var(--r);
+  padding: 12px 18px; display: grid; gap: 4px; text-align: center; position: relative;
+}
+.prompt::before { /* specimen-tag punch hole */
+  content: ""; position: absolute; top: 9px; left: 12px; width: 7px; height: 7px; border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+}
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--scan); }
+.pname { font-weight: 750; font-stretch: 112%; font-size: clamp(22px, 2.6vw, 34px); line-height: 1.1; color: var(--bone); white-space: nowrap; overflow: hidden; text-wrap: balance; }
+.pmeta { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Study shows a line or three about the piece here (what it does, what it joins, where it comes from) */
+.ptip { font-size: 12.5px; line-height: 1.45; color: var(--muted); max-width: var(--tip-width); justify-self: center; text-wrap: pretty; margin-top: 2px; min-height: var(--tip-height); }
+.ptip b { color: var(--fg); font-weight: 600; }
+.pbar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+.pbar i { display: block; height: 100%; width: 0%; background: var(--scan); transition: width .35s ease; }
+.prompt.is-ok { border-color: var(--ok); }
+.prompt.is-bad { border-color: var(--bad); }
+.prompt.is-reveal .eyebrow { color: var(--bad); }
+.review { display: grid; gap: 8px; justify-items: center; margin-top: 4px; }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; font-size: 13.5px; }
+.legend .key { display: inline-flex; align-items: center; gap: 7px; }
+.legend .key i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.legend .key b { font-family: var(--f-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.legend .ok i { background: var(--ok); } .legend .ok b { color: var(--ok); }
+.legend .bad i { background: var(--miss); } .legend .bad b { color: var(--miss); }
+.rhint { margin: 0; font-size: 12px; color: var(--muted); }
+.ractions { justify-content: center; }
+body.clean .ractions, body.clean .rhint { display: none; }
+
+/* ---------- stats ---------- */
+.stats { grid-column: 3; grid-row: 1; justify-self: end; align-self: start; display: flex; gap: 6px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: grid; gap: 1px; min-width: 64px; }
+.stat b { font-family: var(--f-mono); font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; }
+.stat small { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+/* Desktop: in Study the score boxes are invisible but keep their space, so the region map, View menu and
+   Settings panel sit at the same height in every mode (otherwise the top row grows when they appear). */
+@media (min-width: 901px) { .stats[hidden] { display: flex !important; visibility: hidden; } }
+
+/* ---------- left column: region map, then the view controls ---------- */
+.leftcol {
+  grid-column: 1; grid-row: 2; align-self: start; justify-self: start;
+  width: 248px; max-height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none;
+  display: flex; flex-direction: column; gap: 10px;
+  pointer-events: none;
+}
+.leftcol > * { pointer-events: auto; }
+
+/* ---------- region map ---------- */
+.rail {
+  flex: 0 1 auto; min-height: 150px;   /* on short screens the map scrolls so the view controls stay whole */
+  overflow-y: auto;
+  background: var(--panel); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--line); border-radius: var(--r); padding: 10px 8px;
+  display: grid; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+}
+.rail-title { margin: 2px 6px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.rgroup { display: grid; gap: 2px; }
+.rail button {
+  font: inherit; color: var(--fg); background: transparent; border: 1px solid transparent; border-radius: 7px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px; text-align: left; cursor: pointer;
+}
+.rail button em { font-style: normal; font-family: var(--f-mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail button:hover { background: var(--bg-lift); }
+.rail button[aria-pressed="true"] { border-color: var(--scan); background: rgba(111, 208, 232, 0.09); }
+.rail button[aria-pressed="true"] em { color: var(--scan); }
+.rail .rg { padding: 7px 9px; font-size: 13.5px; font-weight: 650; }
+.rail .subs { display: none; gap: 2px; margin: 0 0 4px 12px; padding-left: 8px; border-left: 1px solid var(--line-strong); }
+.rail .rgroup.open .subs { display: grid; }
+.rail .sb { padding: 5px 9px; font-size: 12.5px; color: var(--muted); }
+.rail .sb[aria-pressed="true"] { color: var(--fg); }
+
+/* ---------- control panel ---------- */
+.panel {
+  grid-column: 3; grid-row: 2; justify-self: end; align-self: start;
+  width: 292px; max-height: 100%; overflow-y: auto;
+  background: var(--panel); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--line); border-radius: var(--r);
+  padding: 14px; display: grid; gap: 16px;
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+  /* On short screens the panel scrolls in Study (it has the search box) but not in Practice / Test. Keeping the
+     scrollbar's space reserved stops the contents narrowing when it appears (Windows-style scrollbars). */
+  scrollbar-gutter: stable;
+}
+.panel h3 { margin: 0 0 7px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+/* Segments share the width equally, but a longer label (e.g. "Entraînement") takes the room it needs. */
+.seg { display: flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 3px; }
+.seg button { flex: 1 1 0; white-space: nowrap; font: inherit; font-weight: 600; font-size: 13px; color: var(--muted); background: transparent; border: 0; border-radius: 6px; padding: 7px 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--bg-lift); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.seg button:hover { color: var(--fg); }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--fg); background: var(--bg-lift); border: 1px solid var(--line-strong); border-radius: 7px; padding: 7px 10px; cursor: pointer; }
+.btn:hover { border-color: var(--scan); }
+.btn[aria-pressed="true"] { border-color: var(--scan); color: var(--scan); }
+.btn.primary { background: var(--bone); color: #1b1610; border-color: var(--bone); }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn:disabled { opacity: .45; cursor: default; }
+.views { display: flex; gap: 5px; }
+.views .btn { flex: 1 1 0; white-space: nowrap; padding: 6px 4px; font-size: 12px; }
+/* Brain and Engine have more views than fit in a row: three to a row */
+:where([data-atlas="brain"], [data-atlas="engine"]) .views { display: grid; grid-template-columns: repeat(3, 1fr); }
+:where([data-atlas="engine"]) .views .btn { flex: 0 1 auto; padding: 6px 2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+.hint kbd { font-family: var(--f-mono); font-size: 11px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 4px; color: var(--fg); }
+.best { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.best b { color: var(--bone); font-weight: 600; }
+#search { width: 100%; font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px 10px; }
+#search:focus { outline: none; border-color: var(--scan); }
+.results-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; max-height: 190px; overflow-y: auto; }
+.results-list button { width: 100%; text-align: left; font: inherit; font-size: 12.5px; color: var(--fg); background: transparent; border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+.results-list button:hover { background: var(--bg-lift); }
+/* language picker: a native select (keyboard and screen-reader friendly), styled like the search box */
+.lang-pick { position: relative; display: block; }
+.lang-pick svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--scan); pointer-events: none; }
+.lang-pick::after { content: ""; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px; margin-top: -5px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); pointer-events: none; }
+#langSel {
+  width: 100%; appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px 30px 8px 33px; cursor: pointer;
+}
+#langSel:hover, #langSel:focus { border-color: var(--scan); outline: none; }
+#langSel option { background: var(--bg-lift); color: var(--fg); }
+
+/* ---------- bottom dock ---------- */
+.dock { grid-column: 2; grid-row: 3; justify-self: center; align-self: end; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+/* Fixed line height: the ← → on Previous / Next come from a fallback font with a taller line, which made the
+   dock 2px taller in Study and nudged the region map and View card on shorter screens. */
+.dock .btn { background: var(--panel); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 9px 14px; font-size: 13px; line-height: 16px; }
+#settingsBtn, #viewBtn { display: none; }
+#viewBtn.zoomed { border-color: var(--scan); color: var(--scan); }
+.credit { font-size: 11px; color: var(--muted); line-height: 1.55; margin: 0; }
+.credit a { color: var(--muted); text-underline-offset: 2px; }
+.credit a:hover { color: var(--fg); }
+
+/* ---------- view controls ---------- */
+.viewcard {
+  flex: none;
+  background: var(--panel); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--line); border-radius: var(--r); padding: 10px 10px 11px;
+  display: grid; gap: 8px;
+}
+.vc-head { display: flex; justify-content: space-between; align-items: center; min-height: 14px; }
+.vc-head-actions { display: flex; gap: 6px; align-items: center; }
+.voice-btn {
+  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--muted); background: transparent; cursor: pointer;
+  border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px 9px 2px 7px; display: inline-flex; align-items: center; gap: 6px;
+}
+.voice-btn i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+.voice-btn:hover { color: var(--fg); border-color: var(--scan); }
+.voice-btn[aria-pressed="true"] { color: var(--scan); border-color: var(--scan); }
+.voice-btn[aria-pressed="true"] i { background: var(--bad); animation: rec-blink 1.4s ease-in-out infinite; }
+@keyframes rec-blink { 50% { opacity: .3; } }
+.voice-heard { margin: -2px 4px 0; font-family: var(--f-mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voice-heard.ok { color: var(--ok); }
+.voice-heard.bad { color: var(--bad); white-space: normal; line-height: 1.45; }
+.vc-head h3 { margin: 0 0 0 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.vc-sec { display: grid; gap: 5px; }
+.vc-sec h4 { margin: 0 0 0 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.viewcard .seg button { padding: 5px 6px; font-size: 12.5px; }
+.zp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+:where([data-atlas="engine"]) .zp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.zchip {
+  font: inherit; font-size: 12.5px; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 7px;
+  padding: 4px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; text-align: left; white-space: nowrap;
+}
+.zchip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.zchip kbd { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
+.zchip:hover { border-color: var(--line-strong); }
+.zchip[aria-pressed="true"] { border-color: var(--scan); background: rgba(111, 208, 232, 0.09); }
+.zchip[aria-pressed="true"] kbd { color: var(--scan); }
+.zchip:disabled { opacity: .35; cursor: default; }
+.vc-tools { display: flex; flex-wrap: wrap; gap: 5px; }
+.vc-tools .btn { flex: 1 1 0; padding: 6px 4px; font-size: 12px; white-space: nowrap; }
+:where([data-atlas="engine"]) .vc-tools .btn { flex: 1 1 calc(50% - 3px); min-width: 0; }
+#unhideBtn { flex-basis: 100%; }
+.viewcard .hint { margin: 0 4px; font-size: 11.5px; }
+.narrow-only { display: none; }
+/* shorter laptop screens: tighten the region map and zoom rows so both cards fit without scrolling.
+   From 940px of height down; in the four older atlases (Bone, Muscle, Organ, Brain: <html data-short="840">),
+   whose cards are shorter, from 840px down. The two blocks are otherwise the same. */
+@media (min-width: 901px) and (max-height: 940px) {
+  :where(:root:not([data-short="840"])) .leftcol { gap: 8px; }
+  :where(:root:not([data-short="840"])) .rail { padding-block: 7px; }
+  :where(:root:not([data-short="840"])) .rail .rg { padding: 5px 9px; }
+  :where(:root:not([data-short="840"])) .rail .sb { padding: 3px 9px; }
+  :where(:root:not([data-short="840"])) .rail-title { margin-bottom: 4px; }
+  :where(:root:not([data-short="840"])) .zchip { padding-block: 3px; }
+  :where(:root:not([data-short="840"])) .viewcard .seg button { padding-block: 4px; }
+  :where(:root:not([data-short="840"])) .views .btn, :where(:root:not([data-short="840"])) .vc-tools .btn { padding-block: 5px; }
+}
+@media (min-width: 901px) and (max-height: 840px) {
+  :where([data-short="840"]) .leftcol { gap: 8px; }
+  :where([data-short="840"]) .rail { padding-block: 7px; }
+  :where([data-short="840"]) .rail .rg { padding: 5px 9px; }
+  :where([data-short="840"]) .rail .sb { padding: 3px 9px; }
+  :where([data-short="840"]) .rail-title { margin-bottom: 4px; }
+  :where([data-short="840"]) .zchip { padding-block: 3px; }
+  :where([data-short="840"]) .viewcard .seg button { padding-block: 4px; }
+  :where([data-short="840"]) .views .btn, :where([data-short="840"]) .vc-tools .btn { padding-block: 5px; }
+}
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: 999px;
+  padding: 8px 16px; font-size: 13.5px; max-width: min(560px, calc(100% - 32px)); text-align: center;
+  opacity: 0; transition: opacity .2s ease; pointer-events: none; z-index: 12;
+}
+.toast.show { opacity: 1; }
+.toast.bad { border-color: var(--bad); }
+.toast.ok { border-color: var(--ok); }
+
+/* ---------- overlays ---------- */
+.overlay {
+  position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; z-index: 20;
+  background: rgba(6, 10, 14, 0.62); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.card { box-sizing: border-box; width: min(480px, 100%); max-height: 86vh; overflow-y: auto; background: var(--bg-lift); border: 1px solid var(--line-strong); border-radius: 14px; padding: 22px; display: grid; gap: 14px; }
+.card h2 { margin: 0; font-weight: 800; font-stretch: 118%; font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--scan); }
+.card p { margin: 0; color: var(--muted); line-height: 1.5; }
+#loading .card { text-align: center; }
+#confirm .card { width: min(400px, 100%); }
+#confirm p { color: var(--fg); }
+.confirm-actions { justify-content: flex-end; gap: 8px; }
+.confirm-actions .btn { padding: 9px 16px; font-size: 13px; }
+.btn.danger { color: var(--bad); border-color: rgba(255, 122, 107, 0.45); }
+.btn.danger:hover { border-color: var(--bad); }
+#loading progress { width: 100%; height: 6px; appearance: none; -webkit-appearance: none; border: 0; border-radius: 3px; background: var(--line); }
+#loading progress::-webkit-progress-bar { background: var(--line); border-radius: 3px; }
+#loading progress::-webkit-progress-value { background: var(--scan); border-radius: 3px; }
+#loading progress::-moz-progress-bar { background: var(--scan); }
+
+/* ---------- clean recording view ---------- */
+body.clean .panel, body.clean .leftcol, body.clean .dock .btn:not(#cleanExit) { display: none !important; }
+body.clean .pname { font-size: clamp(30px, 4.6vw, 60px); }
+body.clean .prompt { padding: 16px 26px; }
+#cleanExit { display: none; }
+body.clean #cleanExit { display: inline-block; opacity: .55; }
+
+:focus-visible { outline: 2px solid var(--scan); outline-offset: 2px; }
+
+/* ---------- phones / narrow ---------- */
+@media (max-width: 900px) {
+  .ui { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto minmax(0, 1fr) auto; gap: 8px; }
+  /* phones: a slim logo row on top, so visitors (most arrive from Instagram) can get back to the site */
+  .brand { grid-column: 1; grid-row: 1; justify-self: center; }
+  .lockup { gap: 9px; }
+  .home .logo-mark { height: 16px; }
+  .home .wordmark { display: inline; font-size: 12.5px; }
+  .lockup .divider { height: 14px; }
+  .brand .mark { font-size: 15px; }
+  .prompt { grid-column: 1; grid-row: 2; align-self: stretch; padding: 10px 14px; }
+  .pname { font-size: clamp(19px, 5.6vw, 26px); }
+  .ptip { font-size: 12px; }
+  .stats { grid-column: 1; grid-row: 3; justify-self: center; }
+  .stat { padding: 4px 9px; min-width: 56px; }
+  .stat b { font-size: 14px; }
+  /* region map becomes one scrolling row; the open region's sub-areas appear right after it */
+  .leftcol { display: contents; }
+  .rail {
+    grid-column: 1; grid-row: 4; width: 100%; min-height: 0; max-height: none; overflow-x: auto; overflow-y: hidden;
+    display: flex; flex-wrap: nowrap; gap: 5px; padding: 0; background: none; border: 0; backdrop-filter: none; -webkit-backdrop-filter: none;
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail-title { display: none; }
+  .rgroup, .rail .rgroup.open .subs { display: contents; }
+  .rail button { flex: none; background: var(--panel); border-color: var(--line); white-space: nowrap; }
+  .rail .rg { padding: 6px 10px; font-size: 13px; }
+  .rail .sb { padding: 6px 10px; font-size: 12.5px; border-style: dashed; }
+  .dock { grid-column: 1; grid-row: 6; }
+  .dock .btn { padding: 9px 12px; }
+  #settingsBtn, #viewBtn { display: inline-block; }
+  /* settings and view controls are bottom sheets */
+  .panel, .viewcard {
+    position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 72vh; overflow-y: auto; z-index: 15;
+    border-radius: 16px 16px 0 0; border-bottom: 0;
+    padding-block: 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    transform: translateY(105%); transition: transform .25s ease;
+  }
+  .viewcard { gap: 12px; }
+  body.sheet-open .panel, body.view-open .viewcard { transform: none; }
+  .panel .close-sheet, .viewcard .close-sheet { display: inline-block; }
+  .zp-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 5px; }
+  .zchip { padding: 8px 9px; }
+  .zchip kbd { display: none; }
+  .narrow-only { display: block; }
+  .callout { font-size: 13px; }
+}
+.close-sheet { display: none; justify-self: end; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
