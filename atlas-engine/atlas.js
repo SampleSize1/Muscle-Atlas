@@ -1,5 +1,5 @@
 // The 3D atlas engine: the code that runs the atlases on samplesize1.com/tools, in one place.
-// (So far Tooth, Lymph, Heart, Nerve, Joint, Muscle and Organ Atlas run on it; Bone, Brain and Engine still carry their own copy.)
+// (So far all but Brain and Engine Atlas run on it; those two still carry their own copy.)
 //
 // An atlas is a page with the markup this code fills in (found by id), its data (data.js), its model (.glb)
 // and a call to startAtlas({ ... }) with the settings that make it that atlas: its zoom areas, colours,
@@ -521,7 +521,8 @@ export async function startAtlas(settings) {
     if (!st) return;
     const test = state.mode === 'test';
     const verdict = t(st === 'ok' ? (test ? 'rp_correct' : 'rp_first') : (test ? 'rp_missed' : 'rp_help'));
-    const name = label(state.set === 'all' ? rec.data : DATA.groups[rec.data.group]);
+    // the name of what was asked: the piece, or in the Main set its group (settings.reviewNamesPiece: always the piece)
+    const name = label(state.set === 'all' || settings.reviewNamesPiece ? rec.data : DATA.groups[rec.data.group]);
     setCallout({ name: `${name}${LANG === 'fr' ? ' :' : ':'} ${verdict}`, accept: new Set([rec.id]) }, rec.id);
   }
   $('rAgain').addEventListener('click', () => startSession());
@@ -686,7 +687,9 @@ export async function startAtlas(settings) {
     const k = LANG + '|' + u.key;
     if (!searchCache.has(k)) {
       const g = DATA.groups[u.group];
-      searchCache.set(k, fold([u.name, u.key, g.name, g.key, ...names(u), ...names(g)].join(' ').replace(/_/g, ' ')));
+      // (settings.searchText: an atlas's own choice of what a search looks through)
+      searchCache.set(k, fold(settings.searchText ? settings.searchText(u, g, names)
+        : [u.name, u.key, g.name, g.key, ...names(u), ...names(g)].join(' ').replace(/_/g, ' ')));
     }
     return searchCache.get(k);
   }
@@ -994,6 +997,8 @@ export async function startAtlas(settings) {
   function areaFor(d) {
     // the smallest area the piece is in: a voice-only area that is part of another (the foot), then a part of a region
     // (with a chip, or voice-only), then a whole region. settings.voiceAreasInViews = false: only areas with a chip.
+    // settings.areaBySection (Bone): by the part of the map alone, whatever an area's `match` says
+    if (settings.areaBySection) return ZOOMS.find(z => z.sec.includes('/') && inSection(d, z.sec)) || ZOOMS.find(z => z.key !== 'all' && inSection(d, z.sec)) || ZOOM.all;
     const spoken = settings.voiceAreasInViews === false ? [] : ZOOMS_VOICE;
     return spoken.find(z => z.match && inView(d, z.key, 'both'))
       || ZOOMS.find(z => z.key !== 'all' && z.sec.includes('/') && inView(d, z.key, 'both'))
@@ -1205,7 +1210,7 @@ export async function startAtlas(settings) {
       $('setSeg').querySelector('[data-v="names"]').textContent = t('set_names', { n: nMain });
       $('setSeg').querySelector('[data-v="all"]').textContent = t('set_all', { n: nAll });
       $('setHint').textContent = t(state.set === 'all' ? 'set_hint_all' : 'set_hint_names', { n: state.set === 'all' ? nAll : nMain });
-    } else $('setHint').textContent = t(state.set === 'all' ? 'set_hint_all' : 'set_hint_names');
+    } else if ($('setHint')) $('setHint').textContent = t(state.set === 'all' ? 'set_hint_all' : 'set_hint_names');
     $('hintHint').textContent = t(state.hints ? 'hints_hint_on' : 'hints_hint_off');
     $('searchBox').hidden = state.mode !== 'study';
     // the key help is our own markup (<kbd> tags) from the text table, not user input
@@ -1269,7 +1274,7 @@ export async function startAtlas(settings) {
   // 3 = only the inside of the heart.
   function setLayer(n, say = false) {
     state.layer = n;
-    $('layerSeg').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === n)));
+    $('layerSeg')?.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === n)));
     occ.key = '';
     applyVisibility();
     if (say) toast(pair('layer_toast')[n - 1]);
@@ -1293,13 +1298,14 @@ export async function startAtlas(settings) {
     $('sexSeg').addEventListener('click', (e) => { const v = e.target.closest('button')?.dataset.v; if (v) setSex(v); });
     $('sexSeg').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === state.sex)));
   }
-  $('layerSeg').addEventListener('click', (e) => { const v = Number(e.target.closest('button')?.dataset.v); if (v) setLayer(v); });
+  // (a page without a Layers control or a Bones button simply doesn't have that feature: Bone Atlas)
+  $('layerSeg')?.addEventListener('click', (e) => { const v = Number(e.target.closest('button')?.dataset.v); if (v) setLayer(v); });
   function setBonesShown(on) {
     state.bones = on; store.set('bones', on);
-    $('bonesBtn').setAttribute('aria-pressed', String(on));
+    $('bonesBtn')?.setAttribute('aria-pressed', String(on));
     applyVisibility();
   }
-  $('bonesBtn').addEventListener('click', () => setBonesShown(!state.bones));
+  $('bonesBtn')?.addEventListener('click', () => setBonesShown(!state.bones));
   $('peelBtn').addEventListener('click', () => { state.peel = !state.peel; $('peelBtn').setAttribute('aria-pressed', String(state.peel)); toast(t(state.peel ? 'peel_on' : 'peel_off')); });
   $('unhideBtn').addEventListener('click', () => { state.hidden.clear(); applyVisibility(); closeViewSheetOnPhone(); });
   $('resetBtn').addEventListener('click', () => { frameSection(); closeViewSheetOnPhone(); });
@@ -1324,7 +1330,11 @@ export async function startAtlas(settings) {
     const [za, bp, cc, hra, ccby] = applyStatic.links;   // the links in the page's credit line, in order (three, or five)
     $('credit').innerHTML = t('credit', { za, bp, cc, hra, ccby });
     $('langNote').hidden = !t('lang_note');
-    $('langBox').hidden = I18N.langs.length < 2;   // the picker appears once there is more than one language
+    if (settings.languageNamesBoth) for (const o of $('langSel').options) {   // "Deutsch (German)": its own name, then the name in the language in use
+      const native = I18N.langs.find(x => x[0] === o.value)[1], here = t('lname_' + o.value);
+      o.textContent = native.toLowerCase() === here.toLowerCase() ? native : `${native} (${here})`;
+    }
+    if ($('langBox')) $('langBox').hidden = I18N.langs.length < 2;   // the picker appears once there is more than one language
     $('langSel').value = LANG;
   }
   function setLang(l, save = true) {
@@ -1363,7 +1373,7 @@ export async function startAtlas(settings) {
     else if (k === 'x') setXray(!state.xray);
     else if (k === 'l' && settings.layers) setLayer(state.layer % (settings.layers === true ? 3 : settings.layers) + 1, true);   // layers: true = three, or how many
     else if (k === 'g' && settings.bodies) setSex(state.sex === 'M' ? 'F' : 'M', true);
-    else if (k === 'b') setBonesShown(!state.bones);
+    else if (k === 'b' && $('bonesBtn')) setBonesShown(!state.bones);
     else if (k === 'h') setHints(!state.hints);
     else if (k === 'v') setVoice(!voice.on);
     else if (/^[0-9]$/.test(k)) zoomKey((Number(k) + 9) % 10);
@@ -1454,6 +1464,7 @@ export async function startAtlas(settings) {
     const p = rec ? projectPx(rec.anchor) : null;
     if (!p || p.behind) { box.hidden = true; line.setAttribute('x1', 0); line.setAttribute('x2', 0); line.setAttribute('y1', 0); line.setAttribute('y2', 0); dot.setAttribute('r', 0); return; }
     box.hidden = false;
+    if (settings.calloutWraps) box.style.maxWidth = Math.max(140, Math.min(560, layout.freeW - 12)) + 'px';   // long names wrap within the free area
     const bw = box.offsetWidth, bh = box.offsetHeight;
     const cx = layout.left + layout.freeW / 2;
     const dir = p.x < cx ? -1 : 1;
@@ -1462,7 +1473,9 @@ export async function startAtlas(settings) {
     lx = Math.max(layout.left + 6, Math.min(lx, layout.w - layout.right - bw - 6));
     ly = Math.max(layout.top + 6, Math.min(ly, layout.h - layout.bottom - bh - 6));
     box.style.transform = `translate(${lx.toFixed(1)}px, ${ly.toFixed(1)}px)`;
-    const ex = dir < 0 ? lx + bw : lx, ey = ly + bh / 2;
+    // the line meets the box's side; where a long label that wraps (settings.calloutWraps) had to sit right over the piece, its top or bottom edge
+    let ex = dir < 0 ? lx + bw : lx, ey = ly + bh / 2;
+    if (settings.calloutWraps && p.x > lx && p.x < lx + bw) { ex = p.x; ey = p.y > ly + bh / 2 ? ly + bh : ly; }
     line.setAttribute('x1', p.x.toFixed(1)); line.setAttribute('y1', p.y.toFixed(1));
     line.setAttribute('x2', ex.toFixed(1)); line.setAttribute('y2', ey.toFixed(1));
     dot.setAttribute('cx', p.x.toFixed(1)); dot.setAttribute('cy', p.y.toFixed(1)); dot.setAttribute('r', 3.5);
@@ -1522,7 +1535,7 @@ export async function startAtlas(settings) {
 
   /* ---------------- boot ---------------- */
   applyStatic();
-  setLayer(1); setBonesShown(state.bones);
+  setLayer(1); if ($('bonesBtn')) setBonesShown(state.bones);
   renderSegs(); renderRail(); renderBest(); renderZoom(); resize();
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
