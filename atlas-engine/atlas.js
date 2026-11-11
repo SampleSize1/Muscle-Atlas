@@ -309,7 +309,7 @@ export async function startAtlas(settings) {
   const bones = new Map();        // id -> record
   const ctxPieces = [];           // context meshes
   let pickables = [], blockers = [], liveMeshes = [], ctxLive = [], drawnLive = [];
-  // pieces and bones between the camera and the piece being shown get faded so it is never buried (Study and Practice reveal)
+  // what hides the piece being shown is faded so it is never buried (Study and Practice reveal): see updateOccluders
   const occ = { recs: new Set(), ctx: new Set(), key: '' };
   let modelBox = new THREE.Box3();
 
@@ -1594,28 +1594,62 @@ export async function startAtlas(settings) {
     dot.setAttribute('cx', p.x.toFixed(1)); dot.setAttribute('cy', p.y.toFixed(1)); dot.setAttribute('r', 3.5);
   }
   function sameSet(a, b) { if (a.size !== b.size) return false; for (const x of a) if (!b.has(x)) return false; return true; }
+  // What is in front of the piece being shown is faded, so it is never buried (Study, a practice reveal, search): the
+  // things on the lines of sight from the camera to its middle and to the point the callout lands on. That is worked
+  // out once, when the piece is shown and the camera has reached its view, and then left alone: nothing fades in or out
+  // while the model is turned, and no frame pays for the check. It is worked out again only when what is shown changes
+  // (another piece, a zoom area, a layer, X-ray off: whatever clears occ.key).
+  // And only when the piece needs it: lines of sight also go to points spread over the side of the piece that faces the
+  // camera, and nothing is faded unless more than half of them are blocked (a ligament crossed by a rib or two is easy
+  // enough to see as it is, and its glow shows through). settings.fadeWhenHidden: that share (1 = never fade).
+  const FADE_WHEN_HIDDEN = settings.fadeWhenHidden ?? 0.5;
+  const sightPoint = new THREE.Vector3(), sightDir = new THREE.Vector3();
+  // (up to 24 of the piece's own points, evenly through its mesh, kept in the mesh's own space: a piece may move)
+  function sightSamples(rec) {
+    if (!rec.sight) {
+      const pos = rec.mesh.geometry.attributes.position, n = Math.min(24, pos.count);
+      rec.sight = Array.from({ length: n }, (_, i) => new THREE.Vector3().fromBufferAttribute(pos, Math.floor((i + 0.5) * pos.count / n)));
+    }
+    return rec.sight;
+  }
+  // what is on the line of sight to a point of the piece being shown, short of the point itself
+  function inSightOf(point) {
+    sightDir.copy(point).sub(camera.position); const dist = sightDir.length(); sightDir.normalize();
+    raycaster.set(camera.position, sightDir); raycaster.near = 0; raycaster.far = Math.max(0, dist - 0.002);
+    const hits = raycaster.intersectObjects(liveMeshes, false);
+    raycaster.far = Infinity;
+    return hits;
+  }
+  // Of the atlas's own pieces, only those lying over the one being shown (an outer layer) and much bigger ones around it
+  // (the skull around the ear bones) count as in front; a similar neighbour at the same depth stays solid and the glow
+  // shows through it. Anything of the frame counts.
+  function inFrontOf(rec, hit) {
+    const r = hit.object.userData.rec;
+    return !r || (!callout.item.accept.has(r.id) && (r.data.layer < rec.data.layer || r.radius > rec.radius * 1.6));
+  }
   function updateOccluders() {
     const rec = callout.rec;
     const moved = own.occKey ? own.occKey() : '';   // (pieces that move: where they are now, or null while they are moving)
-    const key = rec && !state.xray && moved !== null ? rec.id + '|' + moved + camera.position.toArray().map(v => v.toFixed(3)).join(',') : '';
+    const key = rec && !state.xray && moved !== null ? (callout.item.key || '') + '|' + (callout.anchorId || rec.id) + '|' + moved : '';
     if (key === occ.key) return;
-    occ.key = key;
+    const onTheWay = !!key && !!fly;   // the camera is flying to the piece's view: nothing is faded until it is there
+    if (!onTheWay) occ.key = key;
     const recs = new Set(), ctx = new Set();
-    if (key) {
-      const dir = new THREE.Vector3();
-      for (const pt of [rec.anchor, rec.center]) {
-        dir.copy(pt).sub(camera.position); const dist = dir.length(); dir.normalize();
-        raycaster.set(camera.position, dir); raycaster.near = 0; raycaster.far = Math.max(0, dist - 0.002);
-        for (const h of raycaster.intersectObjects(liveMeshes, false)) {
-          const r = h.object.userData.rec;
-          // only fade bones much bigger than the one being shown (the skull around the ear bones, the face around the vomer);
-          // a similar-sized neighbour, like the parietal in front of the frontal, stays solid and the glow shows through it
-          // fade pieces lying over the one being shown, and much bigger ones around it; a similar neighbour at the same
-          // depth stays solid and the glow shows through it
-          if (r) { if (!callout.item.accept.has(r.id) && (r.data.layer < rec.data.layer || r.radius > rec.radius * 1.6)) recs.add(r); } else ctx.add(h.object);
+    if (key && !onTheWay) {
+      let facing = 0, blocked = 0;
+      for (const local of sightSamples(rec)) {
+        const hits = inSightOf(sightPoint.copy(local).applyMatrix4(rec.mesh.matrixWorld));
+        if (hits.some(h => h.object === rec.mesh)) continue;   // a point on the far side of the piece: hidden by the piece itself
+        facing++;
+        if (hits.some(h => inFrontOf(rec, h))) blocked++;
+      }
+      occ.hidden = facing ? blocked / facing : 0;   // (how much of the piece was hidden when it was shown)
+      if (occ.hidden > FADE_WHEN_HIDDEN) {
+        for (const pt of [rec.anchor, rec.center]) for (const h of inSightOf(pt)) {
+          if (!inFrontOf(rec, h)) continue;
+          if (h.object.userData.rec) recs.add(h.object.userData.rec); else ctx.add(h.object);
         }
       }
-      raycaster.far = Infinity;
     }
     if (!sameSet(recs, occ.recs) || !sameSet(ctx, occ.ctx)) { occ.recs = recs; occ.ctx = ctx; applyVisibility(); }
   }
