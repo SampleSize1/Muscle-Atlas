@@ -401,7 +401,8 @@ export async function startAtlas(settings) {
   let study = null;
   function startStudy() {
     study = { items: buildItems(), index: 0 };
-    showStudyItem(false);
+    // (settings.studyOpensHome: with a part of the map chosen, the camera goes to the first piece's own view, not the part's)
+    showStudyItem(settings.studyOpensHome === true && state.section !== 'all');
   }
   function showStudyItem(moveCamera = true, anchorId = null) {
     if (study) { study.peek = null; study.cleared = false; }
@@ -602,10 +603,11 @@ export async function startAtlas(settings) {
       // hidden: by hand, by the Layers control, by belonging to the other body, or (settings.hideOutsideSection, Organ: its
       // systems overlap too much to leave faint copies around) by being outside the chosen part
       // (settings.layersHide: false = the data's `layer` means something else there: how far the Engine must be open)
-      const how = own.piece ? own.piece(r) : null;   // an atlas's own say: { hidden, ghost: an opacity it is capped at, stillLive }
+      // an atlas's own say: { hidden, ghost: an opacity it is capped at, stillLive, shown: drawn even outside the zoom area (solid) }
+      const how = own.piece ? own.piece(r) : null;
       const hidden = state.hidden.has(r.id) || (settings.layersHide !== false && r.data.layer < state.layer) || !inBody(r.data) || (settings.hideOutsideSection === true && !inQuiz) || !!(how && how.hidden);
       if (SOLID) {   // drawn whole or not at all; a piece outside the chosen part stays, and can be clicked
-        const there = !hidden && inView(r.data);
+        const there = !hidden && (inView(r.data) || !!(how && how.shown));
         r.mesh.visible = there;
         const transparent = state.xray;
         if (r.mat.transparent !== transparent) { r.mat.transparent = transparent; r.mat.needsUpdate = true; }
