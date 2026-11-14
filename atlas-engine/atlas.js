@@ -842,6 +842,9 @@ export async function startAtlas(settings) {
     sole: new THREE.Vector3(0, -0.55, -1),   // from behind and below: the sole of the foot, without the whole body overhead
     chin: new THREE.Vector3(0, -0.6, 1),     // from in front and below: the underside of the skull and jaw
   };
+  // Views an atlas adds to the usual ones (settings.moreViewDirs: name -> [x, y, z]). One that differs between the two
+  // sides of the body comes as a pair, <name>_l and <name>_r, and a unit names it without the ending.
+  for (const [k, v] of Object.entries(settings.moreViewDirs || {})) VIEW_DIRS[k] = new THREE.Vector3(...v);
   // Where the camera looks at a part of the map from: the front, unless the atlas's settings say otherwise for that part
   // or its region (settings.viewFrom = { sub: { foot: 'top' }, region: { head: 'left' } }).
   function sectionDir(sec = state.section) {
@@ -1119,7 +1122,8 @@ export async function startAtlas(settings) {
     if (!zoomCount(z.key, side)) side = 'both';
     const v = UNIT[f.data.unit].view, own = pick ? sideOf(pick) : 'left';
     // 'side' looks at the piece's own side, 'medial' from the body's midline side (the other side of the body)
-    const turn = v === 'side' ? own : v === 'medial' ? 'medial_' + own[0] : v === 'front' ? null : v === 'below' ? 'chin' : v;
+    const turn = v === 'side' ? own : v === 'medial' ? 'medial_' + own[0] : v === 'front' ? null : v === 'below' ? 'chin'
+      : VIEW_DIRS[v + '_' + own[0]] ? v + '_' + own[0] : v;
     return { key: z.key, side, turn };
   }
   function onScreen(members, focus) {

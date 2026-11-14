@@ -191,8 +191,8 @@ body.clean .ractions, body.clean .rhint { display: none; }
 .btn:disabled { opacity: .45; cursor: default; }
 .views { display: flex; gap: 5px; }
 .views .btn { flex: 1 1 0; white-space: nowrap; padding: 6px 4px; font-size: 12px; }
-/* Brain and Engine have more views than fit in a row: three to a row */
-:where([data-atlas="brain"], [data-atlas="engine"]) .views { display: grid; grid-template-columns: repeat(3, 1fr); }
+/* Brain, Engine and Bone Landmarks have more views than fit in a row: three to a row */
+:where([data-atlas="brain"], [data-atlas="engine"], [data-atlas="landmarks"]) .views { display: grid; grid-template-columns: repeat(3, 1fr); }
 :where([data-atlas="engine"]) .views .btn { flex: 0 1 auto; padding: 6px 2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
 .hint kbd { font-family: var(--f-mono); font-size: 11px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 4px; color: var(--fg); }
@@ -251,7 +251,7 @@ body.clean .ractions, body.clean .rhint { display: none; }
 .vc-sec h4 { margin: 0 0 0 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
 .viewcard .seg button { padding: 5px 6px; font-size: 12.5px; }
 .zp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-:where([data-atlas="engine"]) .zp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:where([data-atlas="engine"], [data-atlas="landmarks"]) .zp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .zchip {
   font: inherit; font-size: 12.5px; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 7px;
   padding: 4px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; text-align: left; white-space: nowrap;
